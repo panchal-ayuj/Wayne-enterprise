@@ -1,4 +1,5 @@
 import java.util.LinkedList;
+import java.util.Objects;
 import java.util.Random;
 import java.util.concurrent.BlockingDeque;
 import java.util.concurrent.LinkedBlockingDeque;
@@ -18,6 +19,7 @@ class Order {
 }
 
 class Ship {
+    static Random random = new Random();
     static int LowerCargoLimit = 50;
     static int UpperCargoLimit = 300;
     static int TripCost = 1000;
@@ -26,10 +28,12 @@ class Ship {
 
     int cargo;
     int trips;
+    String location;
 
     Ship(){
         this.cargo = 0;
         this.trips = 0;
+        this.location = random.nextBoolean() ? "Gotham" : "Atlanta";
     }
 
     public void makeTrip(Order order) {
@@ -38,7 +42,11 @@ class Ship {
         }
 
         if (shouldCancelOrder(order.creationTime)) {
-            Main.orderBlockingDeque.remove(order);
+            if(Objects.equals(order.destination, "Atlanta")){
+                Main.AtlantaBlockingDeque.remove(order);
+            } else {
+                Main.GothamBlockingDeque.remove(order);
+            }
             System.out.println("Order canceled");
             synchronized (this) {
                 Main.totalCost += CancelCost;
@@ -90,7 +98,8 @@ class Ship {
 
 public class Main {
     static int RevenueRequired = 400000;
-    static BlockingDeque<Order> orderBlockingDeque = new LinkedBlockingDeque<>();
+    static BlockingDeque<Order> AtlantaBlockingDeque = new LinkedBlockingDeque<>();
+    static BlockingDeque<Order> GothamBlockingDeque = new LinkedBlockingDeque<>();
     static Ship[] ships = new Ship[5];
 
     static int totalCost = 0;
@@ -113,7 +122,12 @@ public class Main {
             while (totalCost < RevenueRequired){
                 try {
                     Thread.sleep(4000);
-                    orderBlockingDeque.put(new Order());
+                    Order order = new Order();
+                    if (Objects.equals(order.destination, "Atlanta")) {
+                        AtlantaBlockingDeque.put(order);
+                    } else {
+                        GothamBlockingDeque.put(order);
+                    }
                 } catch (InterruptedException e) {
                     e.printStackTrace();
                 }
@@ -132,8 +146,13 @@ public class Main {
         public void run() {
             while (totalCost < RevenueRequired) {
                 try {
-                    Order order = orderBlockingDeque.take();
-                    ship.makeTrip(order);
+                    if (Objects.equals(ship.location, "Gotham")){
+                        Order order = AtlantaBlockingDeque.take();
+                        ship.makeTrip(order);
+                    } else {
+                        Order order = GothamBlockingDeque.take();
+                        ship.makeTrip(order);
+                    }
                 } catch (InterruptedException e) {
                     e.printStackTrace();
                 }

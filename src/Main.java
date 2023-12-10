@@ -1,71 +1,145 @@
 import java.util.LinkedList;
+import java.util.Random;
+import java.util.concurrent.BlockingDeque;
+import java.util.concurrent.LinkedBlockingDeque;
 
-public class Main {
-    public static void main(String[] args) throws InterruptedException {
-        final PC pc = new PC();
 
-        Thread t1 = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    pc.produce(new Integer(3));
-                }
-                catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-            }
-        });
+class Order {
+    static Random random = new Random();
+    int cargoWeight;
+    String destination;
+    long creationTime;
 
-        Thread t2 = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    pc.consume();
-                }
-                catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-            }
-        });
+    Order(){
+        this.creationTime = System.currentTimeMillis();
+        this.cargoWeight = random.nextInt(41) + 10;
+        this.destination = random.nextBoolean() ? "Gotham" : "Atlanta";
+    }
+}
 
-        t1.start();
-        t2.start();
+class Ship {
+    static int LowerCargoLimit = 50;
+    static int UpperCargoLimit = 300;
+    static int TripCost = 1000;
+    static int CancelCost = 250;
+    static long MaxWaitTime = 60000;
 
-        t1.join();
-        t2.join();
+    int cargo;
+    int trips;
+
+    Ship(){
+        this.cargo = 0;
+        this.trips = 0;
     }
 
-    public static class PC<T> {
-        LinkedList<T> list = new LinkedList<>();
-        int capacity = 2;
+    public void makeTrip(Order order) {
+        if (Main.totalCost >= Main.RevenueRequired){
+            return;
+        }
 
-        public void produce(T obj) throws InterruptedException {
-//            T obj = (T) new Object();
-            while (true) { // Because we need to produce till the time the code is running
-                synchronized (this) {
-                    while (list.size() == capacity) {
-                        wait();
-                    }
-                    System.out.println("Produced: " + obj);
-                    list.add(obj);
-                    notify();
-                    Thread.sleep(1000);
+        if (shouldCancelOrder(order.creationTime)) {
+            Main.orderBlockingDeque.remove(order);
+            System.out.println("Order canceled");
+            synchronized (this) {
+                Main.totalCost += CancelCost;
+                Main.totalOrdersCanceled++;
+            }
+            return;
+        }
+
+        cargo += order.cargoWeight;
+        synchronized (this) {
+            Main.totalCost += TripCost;
+            Main.totalOrdersDelivered++;
+        }
+
+        if (cargo < LowerCargoLimit) {
+            System.out.println("Waiting for cargo.");
+            return;
+        }
+
+        cargo = 0;
+        String destination = order.destination;
+
+        System.out.println("Shipment to " + destination);
+        System.out.println("Total cost: " + Main.totalCost);
+        trips++;
+
+        if(trips%5 == 0){
+            System.out.println("Ship in maintenance for 1 minute");
+            try {
+                Thread.sleep(60000);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    public void pickupCargo(int cargoWeight) {
+        cargo += cargoWeight;
+    }
+
+    public int getTrips(){
+        return trips;
+    }
+
+    public boolean shouldCancelOrder(long orderCreationTime) {
+        return System.currentTimeMillis() - orderCreationTime > MaxWaitTime;
+    }
+}
+
+public class Main {
+    static int RevenueRequired = 400000;
+    static BlockingDeque<Order> orderBlockingDeque = new LinkedBlockingDeque<>();
+    static Ship[] ships = new Ship[5];
+
+    static int totalCost = 0;
+    static int totalOrdersDelivered = 0;
+    static int totalOrdersCanceled = 0;
+    public static void main(String[] args) throws InterruptedException {
+        for (int i = 0; i<5; i++){
+            ships[i] = new Ship();
+            new Thread(new ShippingThread(ships[i])).start();
+        }
+
+        for (int i=0; i<7; i++){
+            new Thread(new ConsumerThread()).start();
+        }
+    }
+
+    static class ConsumerThread implements Runnable {
+        @Override
+        public void run() {
+            while (totalCost < RevenueRequired){
+                try {
+                    Thread.sleep(4000);
+                    orderBlockingDeque.put(new Order());
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
                 }
             }
         }
+    }
 
-        public void consume() throws InterruptedException {
-            while (true) {
-                synchronized (this) {
-                    while (list.size() == 0) {
-                        wait();
-                    }
-                    T obj = list.removeFirst();
-                    System.out.println("Consumed: " + obj);
-                    notify();
-                    Thread.sleep(1000);
+    static class ShippingThread implements  Runnable {
+        Ship ship;
+
+        public ShippingThread(Ship ship) {
+            this.ship = ship;
+        }
+
+        @Override
+        public void run() {
+            while (totalCost < RevenueRequired) {
+                try {
+                    Order order = orderBlockingDeque.take();
+                    ship.makeTrip(order);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
                 }
             }
+            System.out.println("Total orders delivered " + totalOrdersDelivered);
+            System.out.println("Total orders canceled " + totalOrdersCanceled);
         }
     }
 }
